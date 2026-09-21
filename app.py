@@ -1,86 +1,315 @@
+import time
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="IKS <-> Engineering Chatbot", page_icon="🪔", layout="centered")
 
-# --- API KEY CONFIGURATION ---
-# In production (Streamlit Cloud), this fetches from Secrets. 
-# Locally, you can set it in .streamlit/secrets.toml
-if "GEMINI_API_KEY" not in st.secrets:
-    st.error("Missing GEMINI_API_KEY. Please set it in Streamlit secrets.")
-    st.stop()
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
-# --- SYSTEM PROMPT (The Core Engine) ---
-# Designing a robust system prompt is the most critical part of this application. 
-# It forces the model to strictly adhere to the bidirectional teaching requirement.
-system_instruction = """
-You are an expert professor specializing in the Indian Knowledge System (IKS) and Modern Engineering. 
-Your goal is to bridge ancient Indian concepts (Sanskrit grammar, mathematics, astronomy) with modern engineering principles (computer science, civil, mechanical, etc.).
-
-When teaching, you must dynamically apply one of these two approaches based on the user's query:
-1. IKS to Engineering: If the user asks about an ancient concept (e.g., Panini's Astadhyayi, Pingala's Chhandashastra), explain the concept and immediately map it to its modern engineering equivalent (e.g., Backus-Naur Form, Compiler Design, Binary Combinatorics).
-2. Engineering to IKS: If the user asks about a modern concept (e.g., Recursion, Hashing, State Machines), explain it simply and draw direct, historically accurate parallels to how ancient Indian scholars solved similar logical problems.
-
-Rules:
-- Always be historically and mathematically accurate.
-- Use clear analogies.
-- Format comparisons using Markdown tables where appropriate to show side-by-side relationships.
-- Keep responses concise, structured, and engaging for an engineering student.
-"""
-
-# Initialize the Gemini Model
-model = genai.GenerativeModel(
-    model_name="gemini-3.6-flash",
-    system_instruction=system_instruction
+st.set_page_config(
+    page_title="IKS ↔ Engineering Chatbot",
+    page_icon="🪔",
+    layout="centered"
 )
 
-# --- SESSION STATE MANAGEMENT ---
-# Initialize chat history so the bot remembers the context of the conversation
-if "chat_session" not in st.session_state:
-    st.session_state.chat_session = model.start_chat(history=[])
 
-# --- UI LAYOUT ---
+# ============================================================
+# API KEY
+# ============================================================
+
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error(
+        "Missing GEMINI_API_KEY. "
+        "Please add it to Streamlit Secrets."
+    )
+    st.stop()
+
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+# ============================================================
+# SYSTEM INSTRUCTION
+# ============================================================
+
+SYSTEM_INSTRUCTION = """
+You are an expert professor specializing in the Indian Knowledge
+System (IKS) and Modern Engineering.
+
+Your goal is to bridge ancient Indian concepts such as Sanskrit
+grammar, mathematics, astronomy, logic, linguistics and philosophy
+with modern engineering principles such as computer science,
+software engineering, civil engineering, mechanical engineering,
+mathematics and information theory.
+
+When teaching, dynamically use one of these approaches:
+
+1. IKS → Engineering
+
+If the user asks about an ancient concept, for example:
+- Panini's Astadhyayi
+- Pingala's Chhandashastra
+- Indian mathematics
+- ancient Indian astronomy
+- Sanskrit grammatical rules
+
+Explain the historical concept first and then carefully map it
+to relevant modern engineering concepts.
+
+Examples:
+- Panini → formal grammar / compiler concepts
+- Pingala → combinatorics / binary-like representations
+- ancient algorithms → algorithmic thinking
+
+Do NOT claim that an ancient system is literally identical to a
+modern technology. Clearly distinguish historical facts from
+modern analogies.
+
+2. Engineering → IKS
+
+If the user asks about a modern engineering concept, for example:
+- recursion
+- hashing
+- state machines
+- algorithms
+- databases
+- compiler design
+- networks
+- artificial intelligence
+
+Explain the modern concept clearly and then identify relevant
+parallels or conceptual connections in Indian intellectual
+traditions where historically justified.
+
+IMPORTANT RULES:
+
+- Be historically accurate.
+- Do not invent historical evidence.
+- Clearly distinguish historical evidence from modern analogy.
+- Be mathematically accurate.
+- Do not exaggerate ancient achievements.
+- If a claimed connection is uncertain or debated, say so.
+- Use simple explanations suitable for an engineering student.
+- Use examples whenever helpful.
+- Use Markdown headings and tables when they improve clarity.
+- Keep answers reasonably concise and structured.
+"""
+
+
+# ============================================================
+# MODEL CONFIGURATION
+# ============================================================
+
+MODEL_NAME = "gemini-3.8-flash"
+
+GENERATION_CONFIG = types.GenerateContentConfig(
+    system_instruction=SYSTEM_INSTRUCTION,
+    temperature=0.7,
+    max_output_tokens=1000,
+)
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "chat" not in st.session_state:
+    st.session_state.chat = client.chats.create(
+        model=MODEL_NAME,
+        config=GENERATION_CONFIG,
+    )
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+
+# ============================================================
+# HELPER FUNCTION
+# ============================================================
+
+def send_message_with_retry(message, max_retries=3):
+    """
+    Send a message to Gemini with exponential backoff.
+
+    This helps with temporary RESOURCE_EXHAUSTED / rate-limit
+    errors, but it cannot fix a completely exhausted daily quota.
+    """
+
+    for attempt in range(max_retries):
+        try:
+            return st.session_state.chat.send_message_stream(
+                message=message
+            )
+
+        except Exception as e:
+
+            error_text = str(e).lower()
+
+            if (
+                "resourceexhausted" in error_text
+                or "429" in error_text
+                or "quota" in error_text
+                or "rate limit" in error_text
+            ):
+
+                if attempt == max_retries - 1:
+                    raise
+
+                wait_time = 2 ** attempt
+                time.sleep(wait_time)
+
+            else:
+                raise
+
+
+# ============================================================
+# UI
+# ============================================================
+
 st.title("🪔 IKS-Eng Connect")
-st.markdown("**Bridge ancient Indian Knowledge Systems with Modern Engineering.**")
 
-# Display suggestion chips for quick testing
-st.markdown("_Try asking:_")
-cols = st.columns(2)
-with cols[0]:
-    if st.button("Explain Compilers using Panini"):
-        st.session_state.prompt_input = "How does Panini's Astadhyayi relate to modern Compiler Design?"
-with cols[1]:
-    if st.button("Explain Pingala's Binary System"):
-        st.session_state.prompt_input = "Explain Pingala's Chhandashastra and its relation to binary code."
+st.markdown(
+    "**Bridge ancient Indian Knowledge Systems "
+    "with Modern Engineering.**"
+)
 
-# Display chat history
-for message in st.session_state.chat_session.history:
-    role = "user" if message.role == "user" else "assistant"
-    with st.chat_message(role):
-        st.markdown(message.parts[0].text)
 
-# --- CHAT INPUT & GENERATION ---
-# Check if input came from a button or manual typing
-user_input = st.chat_input("Ask a concept...")
+# ============================================================
+# QUICK QUESTIONS
+# ============================================================
+
+st.markdown("### Try asking")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button(
+        "📚 Panini → Compilers",
+        use_container_width=True
+    ):
+        st.session_state.prompt_input = (
+            "How does Panini's Astadhyayi relate "
+            "to modern compiler design?"
+        )
+
+with col2:
+    if st.button(
+        "🔢 Pingala → Binary",
+        use_container_width=True
+    ):
+        st.session_state.prompt_input = (
+            "Explain Pingala's Chhandashastra "
+            "and its relationship to combinatorics "
+            "and binary representations."
+        )
+
+
+# ============================================================
+# DISPLAY PREVIOUS MESSAGES
+# ============================================================
+
+for message in st.session_state.messages:
+
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+user_input = st.chat_input(
+    "Ask about IKS, engineering, or their connections..."
+)
+
+
+# Handle quick-question buttons
 if "prompt_input" in st.session_state:
+
     user_input = st.session_state.prompt_input
-    del st.session_state.prompt_input # clear it
+
+    del st.session_state.prompt_input
+
+
+# ============================================================
+# GENERATE RESPONSE
+# ============================================================
 
 if user_input:
-    # Show user message
+
+    # Save and display user message
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": user_input
+        }
+    )
+
     with st.chat_message("user"):
         st.markdown(user_input)
-    
-    # Generate and show assistant response
+
+
+    # Generate assistant response
     with st.chat_message("assistant"):
+
         message_placeholder = st.empty()
-        # Stream the response for a better UX
-        response = st.session_state.chat_session.send_message(user_input, stream=True)
+
         full_response = ""
-        for chunk in response:
-            full_response += chunk.text
-            message_placeholder.markdown(full_response + "▌")
-        message_placeholder.markdown(full_response)
+
+        try:
+
+            stream = send_message_with_retry(user_input)
+
+            for chunk in stream:
+
+                if chunk.text:
+
+                    full_response += chunk.text
+
+                    message_placeholder.markdown(
+                        full_response + "▌"
+                    )
+
+            message_placeholder.markdown(full_response)
+
+
+            # Save assistant response
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": full_response
+                }
+            )
+
+
+        except Exception as e:
+
+            error_text = str(e).lower()
+
+            if (
+                "resourceexhausted" in error_text
+                or "429" in error_text
+                or "quota" in error_text
+            ):
+
+                message_placeholder.error(
+                    "⚠️ Gemini API quota/rate limit reached.\n\n"
+                    "Please wait and try again, or check your "
+                    "Gemini API quota in Google AI Studio."
+                )
+
+            else:
+
+                message_placeholder.error(
+                    "❌ Something went wrong while contacting Gemini."
+                )
+
+                st.exception(e)
