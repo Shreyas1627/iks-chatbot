@@ -1,7 +1,5 @@
-import time
 import streamlit as st
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 
 # ============================================================
@@ -16,66 +14,62 @@ st.set_page_config(
 
 
 # ============================================================
-# API KEY
+# API KEY CONFIGURATION
 # ============================================================
 
-if "GEMINI_API_KEY" not in st.secrets:
+if "XAI_API_KEY" not in st.secrets:
     st.error(
-        "Missing GEMINI_API_KEY. "
+        "Missing XAI_API_KEY. "
         "Please add it to Streamlit Secrets."
     )
     st.stop()
 
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+client = OpenAI(
+    api_key=st.secrets["XAI_API_KEY"],
+    base_url="https://api.x.ai/v1"
+)
 
 
 # ============================================================
-# GEMINI CLIENT
+# SYSTEM PROMPT
 # ============================================================
 
-client = genai.Client(api_key=GEMINI_API_KEY)
-
-
-# ============================================================
-# SYSTEM INSTRUCTION
-# ============================================================
-
-SYSTEM_INSTRUCTION = """
+system_instruction = """
 You are an expert professor specializing in the Indian Knowledge
 System (IKS) and Modern Engineering.
 
 Your goal is to bridge ancient Indian concepts such as Sanskrit
-grammar, mathematics, astronomy, logic, linguistics and philosophy
-with modern engineering principles such as computer science,
-software engineering, civil engineering, mechanical engineering,
-mathematics and information theory.
+grammar, mathematics, astronomy, logic and linguistics with
+modern engineering principles such as computer science, software
+engineering, civil engineering, mechanical engineering and
+information theory.
 
 When teaching, dynamically use one of these approaches:
 
 1. IKS → Engineering
 
-If the user asks about an ancient concept, for example:
+If the user asks about an ancient concept such as:
 - Panini's Astadhyayi
 - Pingala's Chhandashastra
 - Indian mathematics
 - ancient Indian astronomy
-- Sanskrit grammatical rules
+- Sanskrit grammar
 
 Explain the historical concept first and then carefully map it
 to relevant modern engineering concepts.
 
 Examples:
 - Panini → formal grammar / compiler concepts
-- Pingala → combinatorics / binary-like representations
+- Pingala → combinatorics / binary representations
 - ancient algorithms → algorithmic thinking
 
-Do NOT claim that an ancient system is literally identical to a
-modern technology. Clearly distinguish historical facts from
+Do NOT claim that an ancient system is literally identical to
+a modern technology. Clearly distinguish historical facts from
 modern analogies.
 
 2. Engineering → IKS
 
-If the user asks about a modern engineering concept, for example:
+If the user asks about a modern engineering concept such as:
 - recursion
 - hashing
 - state machines
@@ -96,7 +90,7 @@ IMPORTANT RULES:
 - Clearly distinguish historical evidence from modern analogy.
 - Be mathematically accurate.
 - Do not exaggerate ancient achievements.
-- If a claimed connection is uncertain or debated, say so.
+- If a connection is uncertain or debated, say so.
 - Use simple explanations suitable for an engineering student.
 - Use examples whenever helpful.
 - Use Markdown headings and tables when they improve clarity.
@@ -105,69 +99,18 @@ IMPORTANT RULES:
 
 
 # ============================================================
-# MODEL CONFIGURATION
+# MODEL
 # ============================================================
 
-MODEL_NAME = "gemini-3.8-flash"
-
-GENERATION_CONFIG = types.GenerateContentConfig(
-    system_instruction=SYSTEM_INSTRUCTION,
-    temperature=0.7,
-    max_output_tokens=1000,
-)
+MODEL_NAME = "grok-4.6"
 
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "chat" not in st.session_state:
-    st.session_state.chat = client.chats.create(
-        model=MODEL_NAME,
-        config=GENERATION_CONFIG,
-    )
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
-
-# ============================================================
-# HELPER FUNCTION
-# ============================================================
-
-def send_message_with_retry(message, max_retries=3):
-    """
-    Send a message to Gemini with exponential backoff.
-
-    This helps with temporary RESOURCE_EXHAUSTED / rate-limit
-    errors, but it cannot fix a completely exhausted daily quota.
-    """
-
-    for attempt in range(max_retries):
-        try:
-            return st.session_state.chat.send_message_stream(
-                message=message
-            )
-
-        except Exception as e:
-
-            error_text = str(e).lower()
-
-            if (
-                "resourceexhausted" in error_text
-                or "429" in error_text
-                or "quota" in error_text
-                or "rate limit" in error_text
-            ):
-
-                if attempt == max_retries - 1:
-                    raise
-
-                wait_time = 2 ** attempt
-                time.sleep(wait_time)
-
-            else:
-                raise
 
 
 # ============================================================
@@ -213,7 +156,7 @@ with col2:
 
 
 # ============================================================
-# DISPLAY PREVIOUS MESSAGES
+# DISPLAY CHAT HISTORY
 # ============================================================
 
 for message in st.session_state.messages:
@@ -231,7 +174,7 @@ user_input = st.chat_input(
 )
 
 
-# Handle quick-question buttons
+# Handle quick buttons
 if "prompt_input" in st.session_state:
 
     user_input = st.session_state.prompt_input
@@ -240,12 +183,12 @@ if "prompt_input" in st.session_state:
 
 
 # ============================================================
-# GENERATE RESPONSE
+# SEND MESSAGE
 # ============================================================
 
 if user_input:
 
-    # Save and display user message
+    # Save user message
     st.session_state.messages.append(
         {
             "role": "user",
@@ -253,11 +196,29 @@ if user_input:
         }
     )
 
+    # Display user message
     with st.chat_message("user"):
         st.markdown(user_input)
 
 
-    # Generate assistant response
+    # --------------------------------------------------------
+    # Build conversation
+    # --------------------------------------------------------
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_instruction
+        }
+    ]
+
+    messages.extend(st.session_state.messages)
+
+
+    # --------------------------------------------------------
+    # Generate response
+    # --------------------------------------------------------
+
     with st.chat_message("assistant"):
 
         message_placeholder = st.empty()
@@ -266,19 +227,29 @@ if user_input:
 
         try:
 
-            stream = send_message_with_retry(user_input)
+            stream = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                stream=True,
+            )
 
             for chunk in stream:
 
-                if chunk.text:
+                if chunk.choices:
 
-                    full_response += chunk.text
+                    delta = chunk.choices[0].delta
 
-                    message_placeholder.markdown(
-                        full_response + "▌"
-                    )
+                    if delta.content:
 
-            message_placeholder.markdown(full_response)
+                        full_response += delta.content
+
+                        message_placeholder.markdown(
+                            full_response + "▌"
+                        )
+
+            message_placeholder.markdown(
+                full_response
+            )
 
 
             # Save assistant response
@@ -292,24 +263,19 @@ if user_input:
 
         except Exception as e:
 
-            error_text = str(e).lower()
+            error_message = str(e)
 
-            if (
-                "resourceexhausted" in error_text
-                or "429" in error_text
-                or "quota" in error_text
-            ):
+            if "429" in error_message:
 
                 message_placeholder.error(
-                    "⚠️ Gemini API quota/rate limit reached.\n\n"
-                    "Please wait and try again, or check your "
-                    "Gemini API quota in Google AI Studio."
+                    "⚠️ Grok API rate limit or quota reached. "
+                    "Please wait and try again."
                 )
 
             else:
 
                 message_placeholder.error(
-                    "❌ Something went wrong while contacting Gemini."
+                    "❌ Error communicating with Grok."
                 )
 
                 st.exception(e)
