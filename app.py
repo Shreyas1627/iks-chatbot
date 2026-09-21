@@ -14,95 +14,123 @@ st.set_page_config(
 
 
 # ============================================================
-# API KEY CONFIGURATION
+# OPENAI API CONFIGURATION
 # ============================================================
 
-if "XAI_API_KEY" not in st.secrets:
+if "OPENAI_API_KEY" not in st.secrets:
     st.error(
-        "Missing XAI_API_KEY. "
-        "Please add it to Streamlit Secrets."
+        "Missing OPENAI_API_KEY. "
+        "Please add it to your Streamlit Secrets."
     )
     st.stop()
 
 client = OpenAI(
-    api_key=st.secrets["XAI_API_KEY"],
-    base_url="https://api.x.ai/v1"
+    api_key=st.secrets["OPENAI_API_KEY"]
 )
-
-
-# ============================================================
-# SYSTEM PROMPT
-# ============================================================
-
-system_instruction = """
-You are an expert professor specializing in the Indian Knowledge
-System (IKS) and Modern Engineering.
-
-Your goal is to bridge ancient Indian concepts such as Sanskrit
-grammar, mathematics, astronomy, logic and linguistics with
-modern engineering principles such as computer science, software
-engineering, civil engineering, mechanical engineering and
-information theory.
-
-When teaching, dynamically use one of these approaches:
-
-1. IKS → Engineering
-
-If the user asks about an ancient concept such as:
-- Panini's Astadhyayi
-- Pingala's Chhandashastra
-- Indian mathematics
-- ancient Indian astronomy
-- Sanskrit grammar
-
-Explain the historical concept first and then carefully map it
-to relevant modern engineering concepts.
-
-Examples:
-- Panini → formal grammar / compiler concepts
-- Pingala → combinatorics / binary representations
-- ancient algorithms → algorithmic thinking
-
-Do NOT claim that an ancient system is literally identical to
-a modern technology. Clearly distinguish historical facts from
-modern analogies.
-
-2. Engineering → IKS
-
-If the user asks about a modern engineering concept such as:
-- recursion
-- hashing
-- state machines
-- algorithms
-- databases
-- compiler design
-- networks
-- artificial intelligence
-
-Explain the modern concept clearly and then identify relevant
-parallels or conceptual connections in Indian intellectual
-traditions where historically justified.
-
-IMPORTANT RULES:
-
-- Be historically accurate.
-- Do not invent historical evidence.
-- Clearly distinguish historical evidence from modern analogy.
-- Be mathematically accurate.
-- Do not exaggerate ancient achievements.
-- If a connection is uncertain or debated, say so.
-- Use simple explanations suitable for an engineering student.
-- Use examples whenever helpful.
-- Use Markdown headings and tables when they improve clarity.
-- Keep answers reasonably concise and structured.
-"""
 
 
 # ============================================================
 # MODEL
 # ============================================================
 
-MODEL_NAME = "grok-4.6"
+MODEL_NAME = "gpt-5.6-luna"
+
+
+# ============================================================
+# SYSTEM INSTRUCTION
+# ============================================================
+
+SYSTEM_INSTRUCTION = """
+You are an expert professor specializing in the Indian Knowledge
+System (IKS) and Modern Engineering.
+
+Your goal is to bridge ancient Indian concepts such as:
+
+- Sanskrit grammar
+- Mathematics
+- Astronomy
+- Logic
+- Linguistics
+- Algorithms
+- Indian scientific traditions
+
+with modern engineering disciplines such as:
+
+- Computer Science
+- Software Engineering
+- Artificial Intelligence
+- Information Theory
+- Civil Engineering
+- Mechanical Engineering
+- Mathematics
+
+IMPORTANT TEACHING APPROACH:
+
+1. IKS → Engineering
+
+When the user asks about an ancient Indian concept:
+
+First explain the historical concept clearly.
+
+Then identify relevant modern engineering concepts.
+
+For example:
+
+Panini's grammar
+→ Formal grammars
+→ Parsing
+→ Compiler design
+
+Pingala's Chhandashastra
+→ Combinatorics
+→ Binary-like representation
+→ Algorithmic thinking
+
+However, DO NOT claim that an ancient system is literally
+the same as a modern technology.
+
+Clearly distinguish:
+
+- Historical fact
+- Modern interpretation
+- Analogy
+- Speculation
+
+2. Engineering → IKS
+
+When the user asks about a modern engineering concept:
+
+First explain the modern engineering concept clearly.
+
+Then discuss relevant parallels from Indian intellectual
+traditions when there is legitimate historical evidence.
+
+Examples:
+
+Recursion
+→ Recursive mathematical or grammatical structures
+
+Formal grammar
+→ Paninian grammatical rules
+
+Combinatorics
+→ Pingala's prosodic analysis
+
+IMPORTANT RULES:
+
+- Be historically accurate.
+- Do not invent historical evidence.
+- Do not exaggerate ancient Indian achievements.
+- Do not present modern interpretations as historical facts.
+- If a connection is debated, explicitly say so.
+- Be mathematically accurate.
+- Use simple explanations suitable for engineering students.
+- Use examples whenever useful.
+- Use Markdown headings.
+- Use Markdown tables for useful comparisons.
+- Keep answers concise but informative.
+- Encourage curiosity and critical thinking.
+"""
 
 
 # ============================================================
@@ -114,7 +142,7 @@ if "messages" not in st.session_state:
 
 
 # ============================================================
-# UI
+# HEADER
 # ============================================================
 
 st.title("🪔 IKS-Eng Connect")
@@ -134,6 +162,7 @@ st.markdown("### Try asking")
 col1, col2 = st.columns(2)
 
 with col1:
+
     if st.button(
         "📚 Panini → Compilers",
         use_container_width=True
@@ -143,7 +172,9 @@ with col1:
             "to modern compiler design?"
         )
 
+
 with col2:
+
     if st.button(
         "🔢 Pingala → Binary",
         use_container_width=True
@@ -162,7 +193,10 @@ with col2:
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+
+        st.markdown(
+            message["content"]
+        )
 
 
 # ============================================================
@@ -174,7 +208,7 @@ user_input = st.chat_input(
 )
 
 
-# Handle quick buttons
+# Handle quick-question buttons
 if "prompt_input" in st.session_state:
 
     user_input = st.session_state.prompt_input
@@ -183,12 +217,15 @@ if "prompt_input" in st.session_state:
 
 
 # ============================================================
-# SEND MESSAGE
+# GENERATE RESPONSE
 # ============================================================
 
 if user_input:
 
+    # --------------------------------------------------------
     # Save user message
+    # --------------------------------------------------------
+
     st.session_state.messages.append(
         {
             "role": "user",
@@ -196,23 +233,30 @@ if user_input:
         }
     )
 
+
+    # --------------------------------------------------------
     # Display user message
+    # --------------------------------------------------------
+
     with st.chat_message("user"):
+
         st.markdown(user_input)
 
 
     # --------------------------------------------------------
-    # Build conversation
+    # Prepare conversation
     # --------------------------------------------------------
 
-    messages = [
+    input_messages = [
         {
-            "role": "system",
-            "content": system_instruction
+            "role": "developer",
+            "content": SYSTEM_INSTRUCTION
         }
     ]
 
-    messages.extend(st.session_state.messages)
+    input_messages.extend(
+        st.session_state.messages
+    )
 
 
     # --------------------------------------------------------
@@ -227,32 +271,33 @@ if user_input:
 
         try:
 
-            stream = client.chat.completions.create(
+            stream = client.responses.create(
                 model=MODEL_NAME,
-                messages=messages,
+                input=input_messages,
                 stream=True,
             )
 
-            for chunk in stream:
+            for event in stream:
 
-                if chunk.choices:
+                if event.type == "response.output_text.delta":
 
-                    delta = chunk.choices[0].delta
+                    full_response += event.delta
 
-                    if delta.content:
+                    message_placeholder.markdown(
+                        full_response + "▌"
+                    )
 
-                        full_response += delta.content
 
-                        message_placeholder.markdown(
-                            full_response + "▌"
-                        )
-
+            # Final response
             message_placeholder.markdown(
                 full_response
             )
 
 
-            # Save assistant response
+            # ------------------------------------------------
+            # Save assistant message
+            # ------------------------------------------------
+
             st.session_state.messages.append(
                 {
                     "role": "assistant",
@@ -265,17 +310,28 @@ if user_input:
 
             error_message = str(e)
 
-            if "429" in error_message:
+            if (
+                "429" in error_message
+                or "rate limit" in error_message.lower()
+                or "quota" in error_message.lower()
+            ):
 
                 message_placeholder.error(
-                    "⚠️ Grok API rate limit or quota reached. "
+                    "⚠️ OpenAI API rate limit or quota reached. "
                     "Please wait and try again."
+                )
+
+            elif "401" in error_message:
+
+                message_placeholder.error(
+                    "🔑 Invalid OpenAI API key. "
+                    "Check your Streamlit Secrets."
                 )
 
             else:
 
                 message_placeholder.error(
-                    "❌ Error communicating with Grok."
+                    "❌ Error communicating with OpenAI."
                 )
 
                 st.exception(e)
